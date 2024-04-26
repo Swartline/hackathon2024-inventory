@@ -1,36 +1,82 @@
 /// <reference types="@workadventure/iframe-api-typings" />
 
-import { bootstrapExtra } from "@workadventure/scripting-api-extra";
+import { UIWebsite } from '@workadventure/iframe-api-typings';
+import {
+  Item,
+  addPlayerItem,
+  clearPlayerInventory,
+  initPlayerInventory,
+} from './inventory';
+import itemsJson from './inventory/items.json';
+import { RemotePlayer } from "@workadventure/iframe-api-typings/play/src/front/Api/Iframe/Players/RemotePlayer";
 
-console.log('Script started successfully');
-
-let currentPopup: any = undefined;
+const items: Item[] = itemsJson.items;
 
 // Waiting for the API to be ready
-WA.onInit().then(() => {
-    console.log('Scripting API ready');
-    console.log('Player tags: ',WA.player.tags)
+(async () => {
+  await WA.onInit();
 
-    WA.room.area.onEnter('clock').subscribe(() => {
-        const today = new Date();
-        const time = today.getHours() + ":" + today.getMinutes();
-        currentPopup = WA.ui.openPopup("clockPopup", "It's " + time, []);
-    })
+  await initPlayerInventory();
 
-    WA.room.area.onLeave('clock').subscribe(closePopup)
+  await clearPlayerInventory();
+  for (const item of items) {
+    await addPlayerItem(item);
+  }
 
-    // The line below bootstraps the Scripting API Extra library that adds a number of advanced properties/features to WorkAdventure
-    bootstrapExtra().then(() => {
-        console.log('Scripting API Extra ready');
-    }).catch(e => console.error(e));
+  WA.ui.onRemotePlayerClicked.subscribe((remotePlayer: RemotePlayer) => {
+    remotePlayer.addAction('voir invetaire', () => {
+      console.log(remotePlayer.state.inventory);
+    });
+  })
 
-}).catch(e => console.error(e));
-
-function closePopup(){
-    if (currentPopup !== undefined) {
-        currentPopup.close();
-        currentPopup = undefined;
+  async function logInventories() {
+    await WA.players.configureTracking();
+    const players = WA.players.list();
+    for (const player of players) {
+      console.log(player.name, ' ', player);
     }
-}
+    console.log(WA.player.name, ' ', WA.player.state.inventory);
 
-export {};
+  }
+
+  WA.player.onPlayerMove(logInventories);
+
+  let inventoryIframe: UIWebsite | undefined;
+
+  WA.ui.actionBar.addButton({
+    id: 'inventory-btn',
+    type: 'action',
+    imageSrc: 'https://cdn-icons-png.flaticon.com/512/4138/4138061.png',
+    toolTip: 'Inventaire',
+    callback: async () => {
+      if (!inventoryIframe) {
+        inventoryIframe = await WA.ui.website.open({
+          url: '/src/test.html',
+          position: {
+            vertical: 'middle',
+            horizontal: 'middle',
+          },
+          size: {
+            height: '50vh',
+            width: '50vw',
+          },
+          allowApi: true,
+        });
+        inventoryIframe.position.vertical = 'top';
+
+        WA.player.state.inventory_open = true;
+        WA.player.state.inventory_id = inventoryIframe.id;
+      } else {
+        inventoryIframe.close();
+        inventoryIframe = undefined;
+        WA.player.state.inventory_open = false;
+      }
+    },
+  });
+
+  WA.player.state.onVariableChange('inventory_open').subscribe((value) => {
+    if (!value) {
+      inventoryIframe = undefined;
+    }
+  });
+})();
